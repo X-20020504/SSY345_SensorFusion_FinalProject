@@ -23,7 +23,7 @@ function [x, P] = tu_qw(x, P, omega, T, Rw)
     % quaternion prediction
     F_omega = eye(4) + 0.5*T*Somega(omega_true);
     q_pred = F_omega * q;
-    q_pred = mu_normalize(q_pred);
+    q_pred = mu_normalizeQ(q_pred);
     
     % bias prediction 
     b_omega_pred = b_omega;  % b_k^ω = b_{k-1}^ω
