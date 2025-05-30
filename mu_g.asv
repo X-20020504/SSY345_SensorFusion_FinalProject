@@ -1,0 +1,46 @@
+function [x, P] = mu_g(x, P, yacc, Ra, g0)
+    % mg_g update the prediciton using measurement
+    % Inputs:
+    %   x    - predicted states
+    %   P    - predicted covariance
+    %   yacc - acc measurement
+    %   Ra   - acc covariance
+    %   g0   - gravity
+    %
+    % Outputs:
+    %   x    - posterior states
+    %   P    - posterior covariances
+
+    % extract elements from states
+    q = x(1:4);
+    b_acc = x(8:10);
+
+    % 1. prediction
+    R = Qq(q);           % rotation matrix
+    y_pred = R' * g0 + b_acc;
+
+    % 2. innovation
+    delta_y = yacc - y_pred;
+
+    % 3. jacobian
+    [Q0, Q1, Q2, Q3] = dQqdq(q);
+    H_q = [Q0'*g0, Q1'*g0, Q2'*g0, Q3'*g0];
+    H = [H_q, zeros(3,3), eye(3)];
+
+    % 4. Kalman 
+    S = H * P * H' + Ra;  % 新息协方差 (3×3)
+    K = P * H' / S;       % 卡尔曼增益 (10×3)
+
+% 5. 状态更新
+dx = K * delta_y;     % 状态更新量 (10×1)
+x = x + dx;           % 后验状态估计
+
+% 四元数归一化
+q_new = x(1:4);
+q_new = q_new / norm(q_new);
+x(1:4) = q_new;
+
+% 6. 协方差更新
+I = eye(10);
+P = (I - K * H) * P;
+end
