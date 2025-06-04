@@ -25,14 +25,13 @@ function [xhat, meas] = filterTemplate(calAcc, calGyr, calMag)
 
   %% Filter settings
   t0 = [];  % Initial time (initialize on first data received)
-  nx = 10;   % Assuming that you use q as state variable.
+  nx = 4;   % Assuming that you use q as state variable.
   % Add your filter settings here.
 
   % Current filter state.
-  x = [1; 0; 0; 0;
-       0; 0; 0;
-       0; 0; 0];
-  P = eye(nx, nx);
+  q0 = [1; 0; 0; 0];
+  x = q0;
+  P = diag(1.0*ones(1,4));
 
   % Saved filter states.
   xhat = struct('t', zeros(1, 0),...
@@ -59,6 +58,12 @@ function [xhat, meas] = filterTemplate(calAcc, calGyr, calMag)
     googleView = [];
     counter = 0;  % Used to throttle the displayed frame rate.
 
+    % ======================================
+    prev_t = 0;
+    L = 59.9993;
+    alpha = 0.01;
+    % ======================================
+
     %% Filter loop
     while server.status()  % Repeat while data is available
       % Get the next measurement set, assume all measurements
@@ -74,25 +79,49 @@ function [xhat, meas] = filterTemplate(calAcc, calGyr, calMag)
       if isempty(t0)  % Initialize t0
         t0 = t;
       end
-
-      acc = data(1, 2:4)';
-      if ~any(isnan(acc))  % Acc measurements are available.
-        % Do something
-      end
+      
       gyr = data(1, 5:7)';
       if ~any(isnan(gyr))  % Gyro measurements are available.
-        % Do something
-        T = t - xhat.t(end);
-        Rw = diag([0.01*ones(1,3), 0.001*ones(1,3), 0.001*ones(1,3)]); % 9×9
-        [x, P] = tu_qw(x, P, gyr, T, Rw);
+        t = data(1)/1000;
+        T = t - prev_t;
+        prev_t = t;
+    
+        Rw = 1e-5*[0.1231, 0.1014, -0.0020;
+                   0.1014, 0.3475, -0.0089;
+                   -0.0020, -0.0089, 0.0170];
+
+        [x, P] = tu_qw4(x, P, gyr, T, Rw);
+      end
+
+      acc = data(1, 2:4)';
+      g0 = [0.0473; 0.0809; 9.8743];
+      % if ~any(isnan(acc))
+      if ~any(isnan(acc)) && ~accOutlier(acc, g0, 0.1)
+
+          Ra = 1e-3*[0.0575, -0.0075, 0.0324;
+                     -0.0075, 0.1298, -0.0651;
+                     0.0324, -0.0651, 0.6122];
+          
+          [x, P] = mu_g4(x, P, acc, Ra, g0);
       end
 
       mag = data(1, 8:10)';
-      if ~any(isnan(mag))  % Mag measurements are available.
-        % Do something
+      L = (1-alpha)*L + alpha*vecnorm(mag, 2, 1);
+      if ~any(isnan(mag)) && magOutlier(mag, L, tol) % Mag measurements are available.
+        % sigma_m = 0.4;
+        % Rm = diag([sigma_m^2, sigma_m^2, sigma_m^2]);
+        % 
+        % mx = -5.2360;
+        % my = 38.0975;
+        % mz = -46.0552;
+        % m0 = [0; sqrt(mx^2+my^2); mz];
+        % 
+        % [x, P] = mu_m(x, P, mag, m0, Rm);
       end
 
       orientation = data(1, 18:21)';  % Google's orientation estimate.
+
+      % disp(orientation)
 
       % Visualize result
       if rem(counter, 10) == 0

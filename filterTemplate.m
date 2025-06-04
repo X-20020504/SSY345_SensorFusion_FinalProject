@@ -25,12 +25,13 @@ function [xhat, meas] = filterTemplate(calAcc, calGyr, calMag)
 
   %% Filter settings
   t0 = [];  % Initial time (initialize on first data received)
-  nx = 4;   % Assuming that you use q as state variable.
+  nx = 10;   % Assuming that you use q as state variable.
   % Add your filter settings here.
 
   % Current filter state.
-  x = [1; 0; 0 ;0];
-  P = eye(nx, nx);
+  q0 = [1; 0; 0; 0];
+  x = [q0; zeros(3,1); zeros(3,1)];
+  P = diag([0.1*ones(1,4), 0.01*ones(1,3), 0.01*ones(1,3)]);
 
   % Saved filter states.
   xhat = struct('t', zeros(1, 0),...
@@ -77,6 +78,7 @@ function [xhat, meas] = filterTemplate(calAcc, calGyr, calMag)
       if ~any(isnan(acc))  % Acc measurements are available.
         % Do something
       end
+      
       gyr = data(1, 5:7)';
       if ~any(isnan(gyr))  % Gyro measurements are available.
         % Do something

@@ -1,16 +1,18 @@
 clear;
 
-load('data_29_may_task_4_with_orientation.mat');
+load('data/data_dynamic_31052025_0944_task_7_b.mat');
 
 
 t0 = [];  % Initial time (initialize on first data received)
-nx = 10;   % Assuming that you use q as state variable.
+nx = 4;   % Assuming that you use q as state variable.
 % Add your filter settings here.
 
 % Current filter state.
 q0 = [1; 0; 0; 0];
-x = [q0; zeros(3,1); zeros(3,1)];
-P = diag([0.1*ones(1,4), 0.01*ones(1,3), 0.01*ones(1,3)]);
+% x = [q0; zeros(3,1); zeros(3,1)];
+x = q0;
+% P = diag([0.1*ones(1,4), 0.01*ones(1,3), 0.01*ones(1,3)]);
+P = diag(0.1*ones(1,4));
 
 % Saved filter states.
 xhat = struct('t', zeros(1, 0),...
@@ -35,6 +37,9 @@ mag_preds = [];
 mag_t = [];
 mag_ks = [];
 
+% mag outlier params
+L = 50;
+alpha = 0.01;
 
 for i = 1:DataLength
     if isnan(meas.gyr(1, i))  % No new data received
@@ -59,55 +64,42 @@ for i = 1:DataLength
         T = t - prev_t;
         prev_t = t;
     
-        gyro_noise = 1e-5;
-        bias_omega_noise = 1e-7;
-        bias_acc_noise = 1e-6;
-        Rw = diag([gyro_noise*ones(1,3), bias_omega_noise*ones(1,3), bias_acc_noise*ones(1,3)]);
-    
-        [x, P] = tu_qw(x, P, gyro_k, T, Rw);
+        Rw = 1e-5*[0.1231, 0.1014, -0.0020;
+                   0.1014, 0.3475, -0.0089;
+                   -0.0020, -0.0089, 0.0170];
+
+        [x, P] = tu_qw4(x, P, gyro_k, T, Rw);
     end
 
     % acc
     acc_k = meas.acc(:, i);
-    if ~any(isnan(acc_k)) && ~accOutlier(acc_k, 1.0)
-    
-        sigma_a = 0.05;
-        Ra = diag([sigma_a^2, sigma_a^2, sigma_a^2]);
-        % Ra = diag([0.1200, 0.0398, 0.1390]);
-    
-        g0 = [0; 0; 9.81];
-    
-        [x, P] = mu_g(x, P, acc_k, Ra, g0);
+    g0 = [0.0473; 0.0809; 9.8743];
+    % if ~any(isnan(acc_k))
+    if ~any(isnan(acc_k)) && ~accOutlier(acc_k, g0, 0.1)
+
+        Ra = 1e-3*[0.0575, -0.0075, 0.0324;
+                   -0.0075, 0.1298, -0.0651;
+                   0.0324, -0.0651, 0.6122];
+        
+        [x, P] = mu_g4(x, P, acc_k, Ra, g0);
+
     end
 
     % mag
     mag_k = meas.mag(:, i);
+    L = (1-alpha)*L + alpha*vecnorm(mag_k, 2, 1);
     if ~any(isnan(mag_k))
+    % if ~any(isnan(mag_k)) && magOutlier(mag_k, L, 5.0)
         
-        sigma_m = 0.0;
-        Rm = diag([sigma_m^2, sigma_m^2, sigma_m^2]);
-    
-        mx = -5.2360;
-        my = 38.0975;
-        mz = -46.0552;
+        mx = 1.0710;
+        my = 18.8779;
+        mz = -45.0483;
         m0 = [0; sqrt(mx^2+my^2); mz];
 
-
-        Qq_measurement_trans = mag_k * pinv(m0);
-        mag_q_measurment(:, end+1) = rotMat2quat(Qq_measurement_trans');
-        mag_q_t(:, end+1) = t-t0;
-    
-        [x, P] = mu_m(x, P, mag_k, m0, Rm);
-
-        q = x(1:4);
-        R = Qq(q);           % rotation matrix
-        mag_pred = R' * m0;
-        delta_mag = mag_k - mag_pred;
-        % delta_ys(:, end+1) = delta_y;
-        mag_preds(:, end+1) = mag_pred;
-        mag_t(:, end+1) = t - t0;
-        mag_ks(:, end+1) = mag_k;
-
+        Rm = [0.9197, 0.1279, -0.3767;
+              0.1279, 0.5496,  0.0331;
+             -0.3767, 0.0331,  1.1012];
+        % [x, P] = mu_m4(x, P, mag_k, m0, Rm);
 
     end
     
@@ -121,33 +113,53 @@ figure;
 
 taxis = linspace(1, DataLength/100, DataLength);
 
-for i =1:4
+for i = 1:4
     subplot(4, 1, i);
     plot(meas.t, meas.orient(i, :)); hold on;
     plot(xhat.t, xhat.x(i, :)); hold on;
-
-    % scatter(mag_q_t, mag_q_measurment(i, :));
-    % scatter(acc_q_t, acc_q_measurment(i, :), 10, 'filled');
 end
+
+figure;
+euler_orient = quat2euler(meas.orient);
+euler_est = quat2euler(xhat.x);
+
+
+figure;
+titles = {'Roll ($\Phi$)', 'Pitch ($\theta)$', 'Yaw ($\Psi$)'};
+for i = 1:3
+    subplot(3, 1, i);
+    plot(meas.t, euler_orient(i, :), 'LineWidth', 1.2); hold on;
+    plot(xhat.t, euler_est(i, :), 'LineWidth', 1.2); hold on;
+
+   
+
+    title(titles{i}, 'Interpreter', 'latex');
+    xlabel('Time (s)');
+    ylabel('Angle (radians)');
+    legend('Benchmark', 'Filter Estimation');
+    grid on;
+end
+sgtitle('Euler Angles Comparison: Estimated vs. Ground Truth');
+
 
 
 % figure;
 % acc_mag = vecnorm(meas.acc, 2, 1);
 % plot(acc_mag);
 
-figure;
+% figure;
+% 
+% for i =1:3
+%     subplot(3, 1, i);
+%     plot(delta_ys_t, delta_ys(i, :)); hold on;
+%     plot(delta_ys_t, acc_ys(i, :)); hold on;
 
-for i =1:3
-    subplot(3, 1, i);
-    % plot(delta_ys_t, delta_ys(i, :)); hold on;
-    % plot(delta_ys_t, acc_ys(i, :)); hold on;
-
-    plot(mag_t, mag_ks(i,:)); hold on;
-    plot(mag_t, mag_preds(i,:)); hold on;
+    % plot(mag_t, mag_ks(i,:)); hold on;
+    % plot(mag_t, mag_preds(i,:)); hold on;
 
 
     % plot(delta_ys_t, delta_ys(i, :)-acc_ys(i, :)); hold on;
 
-end
+% end
 
 % row_var = var(delta_ys-acc_ys, 0, 2)
